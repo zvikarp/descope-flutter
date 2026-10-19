@@ -22,6 +22,31 @@ jobs:
         run: dart analyze
       - name: Test
         run: flutter test
+      - name: Test (web)
+        run: flutter test --platform chrome test/web_platform_test.dart test/web_storage_test.dart
+
+  build-web:
+    name: Build Web (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [js, wasm]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: 'stable'
+      - name: Generate example platform files
+        working-directory: example
+        run: flutter create --platforms=web --project-name=descope_example .
+      - name: Dependencies
+        working-directory: example
+        run: flutter pub get
+      - name: Build
+        working-directory: example
+        run: flutter build web ${{ matrix.compiler == 'wasm' && '--wasm' || '' }}
 
   build-ios:
     name: Build iOS (${{ matrix.integration }})

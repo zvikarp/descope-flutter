@@ -14,8 +14,11 @@ dependencies:
   cryptography: ^2.5.0
   flutter:
     sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
   http: ^1.0.0
   json_annotation: ^4.8.1
+  web: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -48,3 +51,6 @@ flutter:
         pluginClass: DescopePlugin
       windows:
         pluginClass: DescopePluginCApi
+      web:
+        pluginClass: DescopeWeb
+        fileName: descope_web.dart
