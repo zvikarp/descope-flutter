@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 import '/src/internal/http/descope_client.dart';
 import '/src/internal/http/responses.dart';
 import '/src/internal/others/error.dart';
-import '/src/internal/others/stubs/stub_html.dart' if (dart.library.js) 'dart:html' hide Platform;
+import '/src/internal/web/web_platform.dart';
 import '/src/internal/routes/shared.dart';
 import '/src/sdk/routes.dart';
 import '/src/types/error.dart';
@@ -33,22 +33,12 @@ const _defaultContainerCss = {
   "justify-content": "center",
   "box-shadow": "0px 0px 10px gray",
 };
-const _webComponentTag = 'descope-wc';
-const _flowContainerClass = '.login-container';
-const _eventReady = 'ready';
-const _eventSuccess = 'success';
-const _eventError = 'error';
 
 class Flow extends DescopeFlow {
   static const _mChannel = MethodChannel('descope_flutter/methods');
   static const _eChannel = EventChannel('descope_flutter/events');
   static final _random = Random.secure();
   static final _sha256 = Sha256();
-
-  final _htmlValidator = NodeValidatorBuilder.common()
-    ..allowElement('style')
-    ..allowElement('script', attributes: ['src'])
-    ..allowElement(_webComponentTag, attributes: ['project-id', 'flow-id', 'base-url', 'locale', 'debug']);
 
   final DescopeClient client;
   _FlowRunner? _current;
@@ -136,65 +126,24 @@ class Flow extends DescopeFlow {
     final flowId = runner._options.web?.flowId;
     if (flowId == null) throw DescopeException.flowSetup.add(message: 'Web flows require a flow ID');
 
-    // inject style and wc script into page
-    _addFlowStyleToPage(runner);
-    _addFlowScriptToPage();
-
-    // create a login container
-    var loginContainer = DivElement();
-    loginContainer.className = "hidden-container";
-    Element wc = Element.html('<descope-wc project-id=${client.config.projectId} flow-id=$flowId base-url=${client.baseUrl}/>', validator: _htmlValidator);
-    loginContainer.children.add(wc);
-    // loginContainer.children.add(loadingElement);
-    document.body?.children.add(loginContainer);
-
-    // js event listeners
-    runner._readyListener = (Event event) {
-      loginContainer.className = "login-container";
-    };
-
-    runner._successListener = (Event event) {
-      final eventDetail = (event as CustomEvent).detail as Map<dynamic, dynamic>;
-      final response = JWTServerResponse.fromJson(eventDetail.stringifyKeys());
-      final completer = _current?._completer;
-      _cleanupWebComponent();
-      _current = null;
-      completer?.complete(response.toAuthenticationResponse());
-    };
-
-    runner._errorListener = (Event event) {
-      final eventDetail = (event as CustomEvent).detail as Map<dynamic, dynamic>;
-      _completeWithError(DescopeException.flowFailed.add(message: eventDetail['errorMessage']));
-    };
-
-    wc.addEventListener(_eventReady, runner._readyListener);
-    wc.addEventListener(_eventSuccess, runner._successListener);
-    wc.addEventListener(_eventError, runner._errorListener);
-  }
-
-  void _addFlowStyleToPage(_FlowRunner runner) {
-    var styleTag = '<style class="web-component-style">$_flowContainerClass {';
-    final css = runner._options.web?.flowContainerCss ?? _defaultContainerCss;
-    css.forEach((key, value) {
-      styleTag += '$key: $value;';
-    });
-    styleTag += '}.hidden-container{display: none;}</style>';
-    var style = Element.html(styleTag, validator: _htmlValidator);
-    final existingStyle = querySelectorAll('.web-component-style');
-    if (existingStyle.isNotEmpty) {
-      existingStyle.first.remove();
-    }
-    document.head?.children.add(style);
-  }
-
-  void _addFlowScriptToPage() {
-    // when the script version updates, search and remove any preexisting tags (currently none)
-    // added only once
-    final webComponentClass = 'web-component-script-${_webComponentVersion.replaceAll('.', '-')}';
-    if (querySelectorAll('.$webComponentClass').isEmpty) {
-        var script = Element.html('<script src="https://cdn.jsdelivr.net/npm/@descope/web-component@$_webComponentVersion/dist/index.js" class="$webComponentClass"></script>', validator: _htmlValidator);
-        document.body?.children.add(script);
-    }
+    runner._webComponent = webMountFlow(
+      projectId: client.config.projectId,
+      flowId: flowId,
+      baseUrl: client.baseUrl,
+      componentVersion: _webComponentVersion,
+      containerCss: runner._options.web?.flowContainerCss ?? _defaultContainerCss,
+      onReady: () {},
+      onSuccess: (detail) {
+        final response = JWTServerResponse.fromJson(detail);
+        final completer = _current?._completer;
+        _cleanupWebComponent();
+        _current = null;
+        completer?.complete(response.toAuthenticationResponse());
+      },
+      onError: (message) {
+        _completeWithError(DescopeException.flowFailed.add(message: message));
+      },
+    );
   }
 
   void _listenToEventsIfNeeded() {
@@ -237,17 +186,8 @@ class Flow extends DescopeFlow {
   }
 
   void _cleanupWebComponent() {
-    if (!kIsWeb) return;
-    try {
-      Element e = querySelectorAll(_webComponentTag).first;
-      e.removeEventListener(_eventReady, _current?._readyListener);
-      e.removeEventListener(_eventSuccess, _current?._successListener);
-      e.removeEventListener(_eventError, _current?._successListener);
-      Element container = querySelectorAll(_flowContainerClass).first;
-      container.remove();
-    } catch (ignored) {
-      // any cleanup failures are silent
-    }
+    _current?._webComponent?.dispose();
+    _current?._webComponent = null;
   }
 
   Future<void> _exchange(String authorizationCode, String codeVerifier, Completer<AuthenticationResponse> completer) async {
@@ -314,23 +254,7 @@ class _FlowRunner {
   String? _codeVerifier;
 
   // web facilities
-  EventListener? _readyListener;
-  EventListener? _successListener;
-  EventListener? _errorListener;
+  WebFlowComponent? _webComponent;
 
   _FlowRunner(this._options);
-}
-
-extension StringifyKeys on Map<dynamic, dynamic> {
-  Map<String, dynamic> stringifyKeys() {
-    final result = <String, dynamic>{};
-    forEach((key, value) {
-      if (value is Map<dynamic, dynamic>) {
-        result[key] = value.stringifyKeys();
-      } else if (value != null) {
-        result[key.toString()] = value;
-      }
-    });
-    return result;
-  }
 }

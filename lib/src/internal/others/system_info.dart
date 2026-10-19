@@ -3,7 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '/src/internal/others/stubs/stub_html.dart' if (dart.library.js) 'dart:html' hide Platform;
+import '/src/internal/web/web_platform.dart';
 
 class SystemInfo {
   String platformName = '';
@@ -59,8 +59,8 @@ class SystemInfo {
   static Future<SystemInfo> _createWeb() async {
     final systemInfo = SystemInfo._();
 
-    final agent = window.navigator.userAgent;
-    final vendor = window.navigator.vendor;
+    final agent = webUserAgent();
+    final vendor = webVendor();
 
     // see: https://github.com/flutter/flutter/blob/7cfaf04fa9781d5287af8b348ea1cc1cf5ef701d/engine/src/flutter/lib/web_ui/lib/ui_web/src/ui_web/browser_detection.dart
     if (vendor == 'Google Inc.') {
